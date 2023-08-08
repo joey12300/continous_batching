@@ -28,10 +28,10 @@ cmake_minimum_required(VERSION 3.17)
 
 project(continuousbatching LANGUAGES C CXX)
 
-set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/common repo")
-set(TRITON_CORE_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/core repo")
-set(TRITON_BACKEND_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/backend repo")
-set(TRITON_THIRD_PARTY_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/third_party repo")
+set(TRITON_COMMON_REPO_TAG "r23.06" CACHE STRING "Tag for triton-inference-server/common repo")
+set(TRITON_CORE_REPO_TAG "r23.06" CACHE STRING "Tag for triton-inference-server/core repo")
+set(TRITON_BACKEND_REPO_TAG "r23.06" CACHE STRING "Tag for triton-inference-server/backend repo")
+set(TRITON_THIRD_PARTY_REPO_TAG "r23.06" CACHE STRING "Tag for triton-inference-server/third_party repo")
 set(TRITON_THIRD_PARTY_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/third-party" CACHE STRING "Location of third-party build")
 set(TRITON_THIRD_PARTY_SRC_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/third-party-src" CACHE STRING "Location of third-party source")
 
@@ -58,7 +58,7 @@ FetchContent_Declare(
 )
 FetchContent_Declare(
   repo-core
-  GIT_REPOSITORY https://github.com/triton-inference-server/core.git
+  GIT_REPOSITORY https://github.com/joey12300/core.git
   GIT_TAG ${TRITON_CORE_REPO_TAG}
   GIT_SHALLOW ON
 )
@@ -68,13 +68,8 @@ FetchContent_Declare(
   GIT_TAG ${TRITON_BACKEND_REPO_TAG}
   GIT_SHALLOW ON
 )
-FetchContent_Declare(
-  repo-third-party
-  GIT_REPOSITORY https://github.com/triton-inference-server/third_party.git
-  GIT_TAG ${TRITON_THIRD_PARTY_REPO_TAG}
-)
 
-FetchContent_MakeAvailable(repo-common repo-core repo-backend repo-third-party)
+FetchContent_MakeAvailable(repo-common repo-core repo-backend)
 
 # Some libs are installed to ${TRITON_THIRD_PARTY_INSTALL_PREFIX}/{LIB}/lib64 instead
 # of ${TRITON_THIRD_PARTY_INSTALL_PREFIX}/{LIB}/lib on Centos
@@ -89,15 +84,33 @@ if(EXISTS "/etc/os-release")
   endif()
 endif()
 
+set(GRPC_DIRECTORY "" CACHE PATH "The directory of grpc package")
+if (NOT EXISTS "${GRPC_DIRECTORY}")
+	message(FATAL_ERROR "Can't find grpc package in path ${GRPC_DIRECTORY}")
+endif()
+
 # Location where protobuf-config.cmake will be installed varies by
 # platform
 if (WIN32)
-  set(Protobuf_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/cmake")
-  set(gRPC_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/grpc/cmake")
+  set(gRPC_DIR "${GRPC_DIRECTORY}/grpc/cmake")
+  set(Protobuf_DIR "${GRPC_DIRECTORY}/protobuf/cmake")
+  set(c-ares_DIR "${GRPC_DIRECTORY}/c-ares/cmake")
+  set(absl_DIR "${GRPC_DIRECTORY}/absl/cmake")
 else()
-  set(Protobuf_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/${LIB_DIR}/cmake/protobuf")
-  set(gRPC_DIR "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/grpc/${LIB_DIR}/cmake/grpc")
+  set(gRPC_DIR "${GRPC_DIRECTORY}/grpc/${LIB_DIR}/cmake/grpc")
+  set(Protobuf_DIR "${GRPC_DIRECTORY}/protobuf/${LIB_DIR}/cmake/protobuf")
+  set(c-ares_DIR "${GRPC_DIRECTORY}/c-ares/${LIB_DIR}/cmake/c-ares/")
+  set(absl_DIR "${GRPC_DIRECTORY}/absl/${LIB_DIR}/cmake/absl/")
 endif()
+
+#-- Could NOT find absl (missing: absl_DIR)
+message(STATUS "gRPC_DIR = ${gRPC_DIR}")
+message(STATUS "Protobuf_DIR = ${Protobuf_DIR}")
+message(STATUS "c-ares_DIR = ${c-ares_DIR}")
+message(STATUS "absl_DIR = ${absl_DIR}")
+
+find_package(gRPC CONFIG REQUIRED)
+find_package(Protobuf CONFIG REQUIRED)
 
 #
 # The backend must be built into a shared library. Use an ldscript to
@@ -105,7 +118,6 @@ endif()
 #
 configure_file(src/libtriton_continuousbatching.ldscript libtriton_continuousbatching.ldscript COPYONLY)
 
-add_custom_target(protobuf-grpc DEPENDS protobuf grpc)
 set(_PROTOBUF_PROTOC "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/protobuf/bin/protoc")
 set(_GRPC_CPP_PLUGIN_EXECUTABLE "${TRITON_THIRD_PARTY_INSTALL_PREFIX}/grpc/bin/grpc_cpp_plugin")
 
@@ -132,9 +144,7 @@ add_library(
   src/continuous_batcher.grpc.pb.cc
   src/continuous_batcher.pb.cc
 )
-add_dependencies(triton-continuous-batching protobuf-grpc)
 
-find_package(gRPC CONFIG REQUIRED)
 
 target_include_directories(
   triton-continuous-batching
